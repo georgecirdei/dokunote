@@ -241,7 +241,7 @@ export function logDatabaseQuery(query: string, params: any[], duration: number,
  * Authentication event logging
  */
 export function logAuthEvent(
-  event: 'login' | 'logout' | 'register' | 'password_reset',
+  event: 'login' | 'logout' | 'register' | 'password_reset' | 'delete_account',
   userId: string,
   success: boolean,
   context?: Partial<LogContext>
