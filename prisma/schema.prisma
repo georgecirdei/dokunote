@@ -1,0 +1,291 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// TENANT & USER MANAGEMENT
+// ============================================================================
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  subdomain   String?  @unique // For tenant-specific subdomains (e.g., acme-corp.dokunote.com)
+  customDomain String? @unique // Future: custom domains (e.g., docs.company.com)
+  
+  // Metadata
+  description String?
+  website     String?
+  logo        String? // URL to logo image
+  
+  // Settings
+  isActive    Boolean  @default(true)
+  plan        String   @default("free") // free, pro, enterprise
+  settings    Json     @default("{}") // JSON for flexible settings
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  userTenants UserTenant[]
+  projects    Project[]
+  events      AnalyticsEvent[]
+  
+  @@map("tenants")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  
+  // Profile
+  bio           String?
+  website       String?
+  location      String?
+  
+  // System
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  accounts        Account[]
+  sessions        Session[]
+  userTenants     UserTenant[]
+  documents       Document[] // Documents created by this user
+  documentVersions DocumentVersion[] // Document versions created by this user
+  events          AnalyticsEvent[]
+  
+  @@map("users")
+}
+
+model UserTenant {
+  id       String @id @default(cuid())
+  userId   String
+  tenantId String
+  
+  // Role within the tenant
+  role     String @default("viewer") // owner, admin, editor, viewer
+  
+  // Permissions
+  permissions Json @default("{}") // JSON for flexible permissions
+  
+  // Status
+  isActive Boolean  @default(true)
+  joinedAt DateTime @default(now())
+  
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, tenantId])
+  @@index([tenantId, userId]) // Performance: tenant isolation
+  @@map("user_tenants")
+}
+
+// ============================================================================
+// DOCUMENTATION MODELS
+// ============================================================================
+
+model Project {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  slug        String
+  description String?
+  
+  // Settings
+  isPublic    Boolean  @default(false) // Whether project docs are publicly accessible
+  isActive    Boolean  @default(true)
+  settings    Json     @default("{}") // JSON for project-specific settings
+  
+  // SEO & Metadata
+  metaTitle       String?
+  metaDescription String?
+  favicon         String? // URL to custom favicon
+  
+  // Theming (for public docs)
+  customCss       String? // Custom CSS for public docs
+  primaryColor    String? // Brand color
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime? // When project was made public
+  
+  // Relations
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documents Document[]
+  events    AnalyticsEvent[]
+  
+  @@unique([tenantId, slug]) // Unique slug per tenant
+  @@index([tenantId, slug]) // Performance: tenant-scoped queries
+  @@map("projects")
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  tenantId    String   // Denormalized for performance
+  projectId   String
+  authorId    String
+  
+  // Content
+  title       String
+  slug        String
+  content     String   @db.Text // MDX content
+  excerpt     String?  // Auto-generated or manual excerpt
+  
+  // Structure
+  parentId    String?  // For nested documents
+  order       Int      @default(0) // Order within parent or root
+  
+  // Publishing
+  isPublished Boolean  @default(false)
+  isDraft     Boolean  @default(true)
+  
+  // SEO & Metadata
+  metaTitle       String?
+  metaDescription String?
+  keywords        String[] // Array of keywords for search
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+  
+  // Relations
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author       User              @relation(fields: [authorId], references: [id])
+  parent       Document?         @relation("DocumentHierarchy", fields: [parentId], references: [id])
+  children     Document[]        @relation("DocumentHierarchy")
+  versions     DocumentVersion[]
+  events       AnalyticsEvent[]
+  
+  @@unique([projectId, slug]) // Unique slug per project
+  @@index([tenantId, projectId]) // Performance: tenant isolation
+  @@index([projectId, parentId, order]) // Performance: document hierarchy
+  @@index([tenantId, createdAt]) // Performance: recent documents
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id         String   @id @default(cuid())
+  documentId String
+  version    Int      // Version number (1, 2, 3, etc.)
+  
+  // Content snapshot
+  title      String
+  content    String   @db.Text
+  
+  // Metadata
+  changeNote String?  // What changed in this version
+  authorId   String
+  
+  // Timestamps
+  createdAt  DateTime @default(now())
+  
+  // Relations
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  author   User     @relation(fields: [authorId], references: [id])
+  
+  @@unique([documentId, version]) // Unique version per document
+  @@index([documentId, version]) // Performance: version queries
+  @@map("document_versions")
+}
+
+// ============================================================================
+// ANALYTICS & EVENTS
+// ============================================================================
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  tenantId   String   // Always scoped to tenant
+  projectId  String?  // Optional: project-specific events
+  documentId String?  // Optional: document-specific events
+  userId     String?  // Optional: for authenticated events
+  
+  // Event data
+  type       String   // page_view, search, download, etc.
+  data       Json     @default("{}") // Flexible event data
+  
+  // Request metadata
+  ipAddress    String?
+  userAgent    String?
+  referer      String?
+  country      String?
+  device       String?
+  browser      String?
+  
+  // Timestamps
+  createdAt  DateTime @default(now())
+  
+  // Relations
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id])
+  
+  @@index([tenantId, createdAt]) // Performance: tenant analytics
+  @@index([tenantId, type, createdAt]) // Performance: event type queries
+  @@index([projectId, createdAt]) // Performance: project analytics
+  @@map("analytics_events")
+}
+
+// ============================================================================
+// NEXTAUTH MODELS
+// ============================================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
