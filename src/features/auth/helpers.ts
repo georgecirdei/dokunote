@@ -194,7 +194,7 @@ export async function requireAuth(redirectTo = '/auth/sign-in') {
 }
 
 /**
- * Require tenant access - redirect if no access
+ * Require tenant access - redirect if no access (for pages)
  */
 export async function requireTenantAccess(
   tenantId?: string,
@@ -214,6 +214,39 @@ export async function requireTenantAccess(
   }
 
   return session;
+}
+
+/**
+ * Require tenant access for API routes - throws error if no access
+ */
+export async function requireTenantAccessForAPI(tenantId?: string) {
+  const session = await getSession();
+  
+  if (!session?.user?.id) {
+    throw new Error('Authentication required');
+  }
+
+  const targetTenantId = tenantId || session.user.currentTenantId;
+  
+  if (!targetTenantId) {
+    throw new Error('Tenant context required');
+  }
+
+  const access = await db.userTenant.findUnique({
+    where: {
+      userId_tenantId: {
+        userId: session.user.id,
+        tenantId: targetTenantId,
+      },
+      isActive: true,
+    },
+  });
+
+  if (!access) {
+    throw new Error('Unauthorized tenant access');
+  }
+
+  return { session, access };
 }
 
 /**

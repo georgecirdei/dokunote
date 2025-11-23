@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
-import { getCurrentUser, getCurrentTenant } from '@/features/auth/helpers';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getInitials } from '@/lib/utils';
+import { requireAuth, getCurrentTenant } from '@/features/auth/helpers';
+import { createTenantDBFromSession } from '@/lib/multitenancy';
+import { StatsCards } from '@/components/blocks/dashboard/stats-cards';
 
 export const metadata: Metadata = {
   title: 'Dashboard - DokuNote',
@@ -11,144 +9,83 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const user = await getCurrentUser();
-  const tenant = await getCurrentTenant();
-
-  if (!user) {
-    return (
-      <div className="text-center">
-        <p>User not found. Please sign in again.</p>
-      </div>
-    );
+  // Authentication and tenant context handled by layout
+  const currentTenant = await getCurrentTenant();
+  
+  // Get tenant statistics if we have a tenant
+  let stats = null;
+  let recentProjects: Array<{
+    id: string;
+    name: string;
+    updatedAt: Date;
+    isPublic: boolean;
+  }> = [];
+  
+  if (currentTenant) {
+    try {
+      const tenantDB = await createTenantDBFromSession();
+      
+      // Get tenant statistics
+      stats = await tenantDB.getTenantStats();
+      
+      // Get recent projects
+      recentProjects = await tenantDB.projects.findMany({
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          name: true,
+          updatedAt: true,
+          isPublic: true,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error);
+    }
   }
 
   return (
-    <div className="grid gap-6">
-      {/* Welcome Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center space-x-4">
-            <Avatar className="h-12 w-12">
-              <AvatarImage src={user.image || undefined} alt={user.name || user.email} />
-              <AvatarFallback className="bg-primary text-primary-foreground">
-                {getInitials(user.name || user.email)}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <CardTitle>Welcome back, {user.name || 'User'}!</CardTitle>
-              <CardDescription>{user.email}</CardDescription>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            {currentTenant 
+              ? `Manage your ${currentTenant.name} workspace` 
+              : 'Welcome to your DokuNote workspace'
+            }
+          </p>
+        </div>
+      </div>
+
+      {/* Stats and Activity */}
+      {currentTenant ? (
+        <StatsCards 
+          stats={stats || undefined}
+          recentProjects={recentProjects}
+        />
+      ) : (
+        <div className="text-center py-12">
+          <div className="max-w-md mx-auto">
+            <h2 className="text-xl font-semibold mb-2">Get Started</h2>
+            <p className="text-muted-foreground mb-6">
+              You need to select or create an organization to start using DokuNote.
+            </p>
+            <div className="space-y-3">
+              <div className="text-sm text-muted-foreground">
+                • Create a new organization for your team
+              </div>
+              <div className="text-sm text-muted-foreground">
+                • Join an existing organization
+              </div>
+              <div className="text-sm text-muted-foreground">
+                • Switch between multiple organizations
+              </div>
             </div>
           </div>
-        </CardHeader>
-      </Card>
-
-      {/* Tenant Context */}
-      {tenant && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Current Organization
-              <Badge variant="outline" className="capitalize">
-                {tenant.userTenants[0]?.role || 'Member'}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4">
-              <div>
-                <h3 className="font-semibold">{tenant.name}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {tenant.subdomain && `${tenant.subdomain}.dokunote.com`}
-                </p>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Projects:</span>
-                  <span className="ml-2 font-medium">{tenant._count?.projects || 0}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Team Members:</span>
-                  <span className="ml-2 font-medium">{tenant._count?.userTenants || 0}</span>
-                </div>
-              </div>
-
-              {tenant.projects && tenant.projects.length > 0 && (
-                <div>
-                  <h4 className="font-medium mb-2">Recent Projects</h4>
-                  <div className="grid gap-2">
-                    {tenant.projects.slice(0, 3).map((project) => (
-                      <div 
-                        key={project.id}
-                        className="flex items-center justify-between p-2 border border-border rounded"
-                      >
-                        <span className="text-sm">{project.name}</span>
-                        <Badge variant={project.isPublic ? 'default' : 'secondary'}>
-                          {project.isPublic ? 'Public' : 'Private'}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        </div>
       )}
-
-      {/* Quick Actions */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Create Project</CardTitle>
-            <CardDescription>
-              Start a new documentation project
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              Projects help organize your documentation and can be published publicly.
-            </p>
-            <div className="text-sm text-muted-foreground">
-              Coming soon in Phase 3.1
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Write Documentation</CardTitle>
-            <CardDescription>
-              Create and edit your docs with our MDX editor
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              Rich markdown editor with live preview and syntax highlighting.
-            </p>
-            <div className="text-sm text-muted-foreground">
-              Coming soon in Phase 3.2
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">View Analytics</CardTitle>
-            <CardDescription>
-              Track your documentation performance
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              See page views, popular content, and user engagement metrics.
-            </p>
-            <div className="text-sm text-muted-foreground">
-              Coming soon in Phase 4.2
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }

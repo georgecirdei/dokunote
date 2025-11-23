@@ -1,8 +1,9 @@
-import { requireAuth } from '@/features/auth/helpers';
+import { requireAuth, getCurrentUser, getCurrentTenant, getUserTenants } from '@/features/auth/helpers';
+import { DashboardShell } from '@/components/blocks/dashboard/dashboard-shell';
 
 /**
- * Dashboard layout - requires authentication
- * Will be expanded in Phase 2.3 with full navigation
+ * Dashboard layout with full navigation and tenant context
+ * Requires authentication and provides complete dashboard experience
  */
 
 export default async function DashboardLayout({
@@ -10,21 +11,45 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Ensure user is authenticated
-  await requireAuth();
+  // Ensure user is authenticated and get context
+  const session = await requireAuth();
+  const user = await getCurrentUser();
+  const currentTenant = await getCurrentTenant();
+  const availableTenants = await getUserTenants();
+
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  // Get user role in current tenant
+  const userRole = currentTenant?.userTenants?.[0]?.role || 'viewer';
 
   return (
-    <div className="min-h-screen">
-      {/* TODO: Add dashboard header and sidebar in Phase 2.3 */}
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Welcome to your DokuNote workspace
-          </p>
-        </div>
-        {children}
-      </div>
-    </div>
+    <DashboardShell
+      user={{
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+      }}
+      currentTenant={currentTenant ? {
+        id: currentTenant.id,
+        name: currentTenant.name,
+        slug: currentTenant.slug,
+        plan: currentTenant.plan,
+        projectCount: currentTenant._count?.projects,
+        memberCount: currentTenant._count?.userTenants,
+      } : undefined}
+      availableTenants={availableTenants.map(tenant => ({
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        plan: tenant.plan,
+        userRole: tenant.userRole,
+      }))}
+      userRole={userRole}
+    >
+      {children}
+    </DashboardShell>
   );
 }

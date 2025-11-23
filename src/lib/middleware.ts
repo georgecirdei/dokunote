@@ -49,8 +49,7 @@ export function withMiddleware(
 
   // 3. Authentication (if required)
   if (requireAuth || requireTenant) {
-    // Note: This will be fully implemented in Phase 2.1 with NextAuth
-    wrappedHandler = withAuthenticationPlaceholder(wrappedHandler);
+    wrappedHandler = withAuthentication(wrappedHandler);
   }
 
   // 4. Tenant authentication (if required)
@@ -179,13 +178,49 @@ function withErrorBoundary(handler: Function) {
 }
 
 /**
- * Authentication placeholder (will be implemented in Phase 2.1)
+ * Authentication middleware using NextAuth
  */
-function withAuthenticationPlaceholder(handler: Function) {
+function withAuthentication(handler: Function) {
   return async (req: NextRequest) => {
-    // TODO: Implement full authentication in Phase 2.1
-    // For now, just pass through
-    return handler(req);
+    try {
+      const { getServerSession } = await import('next-auth');
+      const { authOptions } = await import('./auth');
+      
+      const session = await getServerSession(authOptions);
+      
+      if (!session?.user?.id) {
+        return new Response(
+          JSON.stringify({ error: 'Authentication required' }),
+          { 
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      // Add user context to request headers
+      const enhancedReq = new Request(req, {
+        headers: {
+          ...Object.fromEntries(req.headers.entries()),
+          'x-user-id': session.user.id,
+          'x-user-email': session.user.email,
+          'x-current-tenant-id': session.user.currentTenantId || '',
+          'x-current-tenant-role': session.user.currentTenantRole || 'viewer',
+        },
+      });
+
+      return handler(enhancedReq);
+      
+    } catch (error) {
+      console.error('Authentication middleware error:', error);
+      return new Response(
+        JSON.stringify({ error: 'Authentication failed' }),
+        { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
   };
 }
 
