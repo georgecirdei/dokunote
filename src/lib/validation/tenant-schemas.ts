@@ -60,7 +60,7 @@ export const tenantSettingsSchema = z.object({
 // User-Tenant relationship schemas
 export const userTenantSchema = z.object({
   role: z.enum(['owner', 'admin', 'editor', 'viewer']),
-  permissions: z.record(z.boolean()).optional(),
+  permissions: z.record(z.string(), z.boolean()).optional(),
 });
 
 export const inviteUserSchema = z.object({

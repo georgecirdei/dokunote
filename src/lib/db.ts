@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { ContextLogger, logDatabaseQuery } from './logger';
 
 // Enhanced Prisma client with logging integration
 const createPrismaClient = () => {
@@ -23,25 +24,43 @@ const createPrismaClient = () => {
     ],
   });
 
-  // Forward Prisma logs to our logger (will be implemented in Phase 1.4)
+  const dbLogger = new ContextLogger({ requestId: 'db-init' });
+
+  // Forward Prisma logs to our enhanced logger
   prisma.$on('error', (e) => {
-    console.error('Prisma Error:', e);
+    dbLogger.error('Database error occurred', new Error(e.message), {
+      target: e.target,
+      timestamp: e.timestamp,
+    });
   });
 
   prisma.$on('warn', (e) => {
-    console.warn('Prisma Warning:', e);
+    dbLogger.warn('Database warning', {
+      message: e.message,
+      target: e.target,
+      timestamp: e.timestamp,
+    });
   });
 
   prisma.$on('info', (e) => {
-    console.info('Prisma Info:', e);
+    dbLogger.info('Database info', {
+      message: e.message,
+      target: e.target,
+      timestamp: e.timestamp,
+    });
   });
 
   prisma.$on('query', (e) => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Prisma Query:', {
-        query: e.query,
+    // Enhanced query logging with performance tracking
+    logDatabaseQuery(e.query, JSON.parse(e.params), e.duration);
+    
+    // Log slow queries as warnings
+    if (e.duration > 1000) { // Queries slower than 1 second
+      dbLogger.warn('Slow database query detected', {
+        query: e.query.slice(0, 200) + (e.query.length > 200 ? '...' : ''),
+        duration: e.duration,
         params: e.params,
-        duration: `${e.duration}ms`,
+        timestamp: e.timestamp,
       });
     }
   });
@@ -79,14 +98,36 @@ export async function requireTenant(tenantId: string, userId: string) {
   return access;
 }
 
-// Database health check
+// Enhanced database health check with performance monitoring
 export async function healthCheck() {
+  const dbLogger = new ContextLogger({ requestId: 'health-check' });
+  const start = Date.now();
+
   try {
     await db.$queryRaw`SELECT 1`;
-    return { status: 'healthy', timestamp: new Date() };
+    const responseTime = Date.now() - start;
+    
+    dbLogger.info('Database health check completed', {
+      responseTime,
+      status: 'healthy',
+    });
+
+    return { 
+      status: 'healthy', 
+      responseTime,
+      timestamp: new Date() 
+    };
   } catch (error) {
+    const responseTime = Date.now() - start;
+    
+    dbLogger.error('Database health check failed', error, {
+      responseTime,
+      status: 'unhealthy',
+    });
+
     return { 
       status: 'unhealthy', 
+      responseTime,
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date() 
     };

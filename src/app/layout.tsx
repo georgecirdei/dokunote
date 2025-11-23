@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { ThemeProvider } from '@/components/common/theme-provider';
+import { ErrorTrackingProvider } from '@/components/providers/error-tracking-provider';
 
 export const metadata: Metadata = {
   title: 'DokuNote - Enterprise Documentation Platform',
@@ -22,8 +23,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <Toaster />
+          <ErrorTrackingProvider>
+            {children}
+            <Toaster />
+          </ErrorTrackingProvider>
         </ThemeProvider>
       </body>
     </html>

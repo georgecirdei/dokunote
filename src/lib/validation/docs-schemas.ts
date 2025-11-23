@@ -148,7 +148,7 @@ export const documentAnalyticsSchema = z.object({
     searchQuery: z.string().optional(), // For search events
     referrer: z.string().url().optional(),
     userAgent: z.string().optional(),
-    ipAddress: z.string().ip().optional(),
+    ipAddress: z.string().optional(),
     country: z.string().optional(),
     device: z.enum(['desktop', 'tablet', 'mobile']).optional(),
     browser: z.string().optional(),

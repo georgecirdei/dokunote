@@ -24,7 +24,7 @@ export interface TenantContext {
 export async function resolveTenant(): Promise<TenantContext | null> {
   try {
     // Method 1: Subdomain-based resolution (for public docs)
-    const headersList = headers();
+    const headersList = await headers();
     const host = headersList.get('host');
     const tenantSubdomain = headersList.get('x-tenant-subdomain'); // From Nginx
     
@@ -51,7 +51,7 @@ export async function resolveTenant(): Promise<TenantContext | null> {
       }
     }
     
-    // Method 2: Header-based resolution (for API calls)
+    // Method 2: Header-based resolution (for API calls)  
     const tenantId = headersList.get('x-tenant-id');
     if (tenantId) {
       const tenant = await db.tenant.findUnique({
